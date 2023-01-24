@@ -3,6 +3,7 @@ import atexit
 from pyVim import connect
 from pyVmomi import vim
 
+
 class VcenterConnection:
     def __init__(self, host, user, pwd, disable_ssl_verification=False):
         self.host = host
@@ -13,10 +14,15 @@ class VcenterConnection:
 
     def connect(self):
         try:
+            # Connect to vCenter using SSL or not based on the disable_ssl_verification variable
+
             if self.disable_ssl_verification:
                 service_instance = connect.SmartConnectNoSSL(host=self.host, user=self.user, pwd=self.pwd)
             else:
                 service_instance = connect.SmartConnect(host=self.host, user=self.user, pwd=self.pwd)
+
+            # Register atexit to handle disconnecting
+                 
             atexit.register(connect.Disconnect, service_instance)
             self.si = service_instance
             return service_instance
@@ -37,20 +43,46 @@ class ContainerViewManager:
 
     def create_container_view(self):
         try:
+            # Create a container view for the specified view type and recursion level
+
             view = self.connection.content.viewManager.CreateContainerView(self.connection.content.rootFolder, self.view_type, self.recursive)
         except Exception as e:
             raise Exception(f"Could not create container view. Error message:  {e}")
         return view
 
+    def destroy_container_view(self):
+        try:
+            # Destroy the container view
+
+            self.connection.content.viewManager.DestroyView(self.view)
+            print("Container view destroyed successfully")
+        except Exception as e:
+            raise Exception(f"Could not destroy container view. Error message: {e}")
+
+     def create_property_filter(self, properties):
+        try:
+            # Create a property filter for the specified properties
+            
+            property_spec = self.connection.content.propertyCollector.CreatePropertyCollector()
+            property_spec.SetCollector(self.view)
+            property_spec.SetObjectType(self.view_type)
+            property_spec.SetProperties(properties)
+
+            return property_spec
+        except Exception as e:
+            raise Exception(f"Could not create property filter. Error message: {e}")
+
 class VmFacts:
     def __init__(self, connection):
         self.connection = connection
-        self.container_view = ContainerViewManager(self.connection, [vim.VirtualMachine], True).create_container_view()
-        self.vm_facts = []
 
     def collect_facts(self):
-        vms = self.container_view.view
-        for vm in vms:
+
+        vm_facts = []
+        # Create container view for VirtualMachine
+        cv = ContainerViewManager(self.connection, [vim.VirtualMachine], True).create_container_view().view
+        
+        for vm in cv:
             vm_info = {}
             vm_info['name'] = vm.name
             vm_info['cores'] = vm.config.hardware.numCPU
@@ -101,66 +133,104 @@ class VmFacts:
                 if vm.runtime.host.parent.parent:
                     vm_info['datacenter'] = vm.runtime.host.parent.parent.name
 
-        return self.vm_facts
+       # Destroy the container view
+        cv.destroy_container_view()
 
+        return vm_facts
 
 class VlanFacts:
     def __init__(self, connection):
         self.connection = connection
-        self.container_view = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view()
-        self.vlans = []
 
-    def collect_facts(self):       
+    def collect_facts(self):
+        vlan_list = []
 
-        # Retrieve vlan information for all datacenters
-        vlan_properties = ["name"]
-        vlan_data = self.connection.content.propertyCollector.RetrieveProperties(self.container_view, vlan_properties)
+        # Create container view for datacenter
+        cv = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view().view
 
-        # Iterate through vlan data and store relevant information
-        for vlan in vlan_data:
-            vlan_info = {}
-            vlan_info["name"] = vlan.name
+        # Create property filter to retrieve specific properties
+        property_spec = cv.create_property_filter(["network"])
 
-            # Get cluster information
-            if vlan.host and vlan.host.parent:
-                vlan_info["cluster"] = vlan.host.parent.name
+        # Retrieve the datacenter properties
+        datacenter_properties = property_spec.RetrieveProperties()
 
-            # Get datacenter information
-            if vlan.host and vlan.host.parent:
-                if vlan.host.parent.parent:
-                    vlan_info["datacenter"] = vlan.host.parent.parent.name
-            vlans.append(vlan_info)
+        # Iterate through the datacenters
+        for datacenter in datacenter_properties:
+            networks = datacenter.network
 
-        return self.vlans
+            # Iterate through the networks in the datacenter
+            for network in networks:
+                vlan_id = network.config.defaultPortConfig.vlan.vlanId
+                vlan_name = network.name
+                vlan_dict = {
+                    "datacenter": datacenter.name,
+                    "vlan_id": vlan_id,
+                    "vlan_name": vlan_name,
+                    "hosts": [],
+                    "clusters": []
+                }
+
+                # Get the hosts and clusters in the network
+                host_properties = property_spec.RetrieveProperties()
+
+                # Iterate through the hosts
+                for host in host_properties:
+                    host_name = host.name
+                    cluster = host.parent.name
+
+                    if cluster not in vlan_dict["clusters"]:
+                        vlan_dict["clusters"].append(cluster)
+                    vlan_dict["hosts"].append(host_name)
+
+                vlan_list.append(vlan_dict)
+
+        # Destroy the container view
+        view_manager.destroy_container_view()
+
+        return vlan_list
 
 class ClusterFacts:
     def __init__(self, connection):
         self.connection = connection
         self.container_view = ContainerViewManager(self.connection, [vim.ClusterComputeResource], True).create_container_view()
-        self.cluster_facts = []
         
     def collect_facts(self):
+
+        cluster_facts = []
+
+        # Create container view for ClusterComputeResource
+        cv = ContainerViewManager(self.connection, [vim.ClusterComputeResource], True).create_container_view().view
+
         # Find all the host clusters in vCenter, and creates a list of dictionaries.
 
-        for cluster in self.container_view.view:
+        for cluster in cv:
             cluster_info = {}
             cluster_info['name'] = cluster.name
             cluster_info['hosts'] = [host.name for host in cluster.host]
             cluster_info['resource_pool'] = cluster.resourcePool.name
             cluster_info['datacenter'] = cluster.parent.parent.name
             self.cluster_facts.append(cluster_info)
-        return self.cluster_facts
+
+       # Destroy the container view
+        cv.destroy_container_view()
+
+        return cluster_facts
 
 class DatastoreClusterFacts:
     def __init__(self, connection):
         self.connection = connection
-        self.container_view = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view()
-        self.datastore_cluster_facts = []
         
     def collect_facts(self):
+
+        datastore_cluster_facts = []
+
+        # Create container view for Datacenter
+
+        cv = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view().view
+
         # Finds all datastore clusters in vCenter, and creates a list of dictionaries.
     
-        for dc in self.container_view.view:
+        for dc in cv:
             for datastore_cluster in dc.datastoreFolder.childEntity:
                 datastore_cluster_info = {}
                 datastore_cluster_info['name'] = datastore_cluster.name
@@ -169,9 +239,12 @@ class DatastoreClusterFacts:
                 datastore_cluster_info['datastores'] = []
                 for datastore in datastore_cluster.childEntity:
                     datastore_cluster_info['datastores'].append({'name': datastore.name, 'capacity': datastore.summary.capacity})
-                self.datastore_cluster_facts.append(datastore_cluster_info)
+                    datastore_cluster_facts.append(datastore_cluster_info)
         
         # Sort the datastore clusters by capacity in descending order
-        self.datastore_cluster_facts = sorted(self.datastore_cluster_facts, key=lambda x: x['capacity'], reverse=True)
+        datastore_cluster_facts = sorted(datastore_cluster_facts, key=lambda x: x['capacity'], reverse=True)
 
-        return self.datastore_cluster_facts
+       # Destroy the container view
+        cv.destroy_container_view()        
+
+        return datastore_cluster_facts
