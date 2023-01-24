@@ -204,12 +204,13 @@ class ClusterFacts:
         # Find all the host clusters in vCenter, and creates a list of dictionaries.
 
         for cluster in cv:
-            cluster_info = {}
-            cluster_info['name'] = cluster.name
-            cluster_info['hosts'] = [host.name for host in cluster.host]
-            cluster_info['resource_pool'] = cluster.resourcePool.name
-            cluster_info['datacenter'] = cluster.parent.parent.name
-            self.cluster_facts.append(cluster_info)
+            cluster_info = {
+                'name': cluster.name,
+                'hosts': [host.name for host in cluster.host],
+                'resource_pool': cluster.resourcePool.name,
+                'datacenter': cluster.parent.parent.name,
+            }
+            cluster_facts.append(cluster_info)
 
        # Destroy the container view
         cv.destroy_container_view()
@@ -231,15 +232,14 @@ class DatastoreClusterFacts:
         # Finds all datastore clusters in vCenter, and creates a list of dictionaries.
     
         for dc in cv:
-            for datastore_cluster in dc.datastoreFolder.childEntity:
-                datastore_cluster_info = {}
-                datastore_cluster_info['name'] = datastore_cluster.name
-                datastore_cluster_info['capacity'] = datastore_cluster.summary.capacity
-                datastore_cluster_info['datacenter'] = dc.name
-                datastore_cluster_info['datastores'] = []
-                for datastore in datastore_cluster.childEntity:
-                    datastore_cluster_info['datastores'].append({'name': datastore.name, 'capacity': datastore.summary.capacity})
-                    datastore_cluster_facts.append(datastore_cluster_info)
+            for dc in dc.datastoreFolder.childEntity:
+                datastore_cluster_info = {
+                    'name': dc.name,
+                    'capacity': dc.summary.capacity,
+                    'datacenter': dc.parent.parent.name,
+                    'datastores': [{'name': d.name, 'capacity': d.summary.capacity} for d in dc.childEntity]
+                }
+                datastore_cluster_facts.append(datastore_cluster_info)
         
         # Sort the datastore clusters by capacity in descending order
         datastore_cluster_facts = sorted(datastore_cluster_facts, key=lambda x: x['capacity'], reverse=True)
