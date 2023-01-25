@@ -1,6 +1,6 @@
 #!/usr/bin/python
-from ansible.module_utils.vcenter_helper import VcenterConnection, VmFacts
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.vcenter_helper import VcenterConnection, VmFacts
 
 def main():
     # Define the module's argument specification
@@ -24,9 +24,6 @@ def main():
 
     # Collect vm facts using the VmFacts class
     vm_facts = VmFacts(connection).collect_facts()
-
-    # Disconnect from vCenter
-    connection.disconnect()
 
     # Return the vm facts in the Ansible module's exit json
     module.exit_json(changed=False, vm_facts=vm_facts)
