@@ -59,7 +59,7 @@ class ContainerViewManager:
         except Exception as e:
             raise Exception(f"Could not destroy container view. Error message: {e}")
 
-     def create_property_filter(self, properties):
+    def create_property_filter(self, properties):
         try:
             # Create a property filter for the specified properties
             
@@ -81,7 +81,13 @@ class VmFacts:
         vm_facts = []
         # Create container view for VirtualMachine
         cv = ContainerViewManager(self.connection, [vim.VirtualMachine], True).create_container_view().view
+
+        # Destroy the container view
+        cv.destroy_container_view()
         
+        # Disonnect from vCenter
+        self.connection.disconnect()
+
         for vm in cv:
             vm_info = {}
             vm_info['name'] = vm.name
@@ -106,7 +112,7 @@ class VmFacts:
 
             
             # Get the vlan infomation
-            if vm.network
+            if vm.network:
                 for nic in vm.network.device:
                     nic_info = {}
                     nic_info['mac_address'] = device.macAddress
@@ -133,9 +139,6 @@ class VmFacts:
                 if vm.runtime.host.parent.parent:
                     vm_info['datacenter'] = vm.runtime.host.parent.parent.name
 
-       # Destroy the container view
-        cv.destroy_container_view()
-
         return vm_facts
 
 class VlanFacts:
@@ -147,6 +150,12 @@ class VlanFacts:
 
         # Create container view for datacenter
         cv = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view().view
+
+        # Destroy the container view
+        cv.destroy_container_view()
+
+        # Disonnect from vCenter
+        self.connection.disconnect()
 
         # Create property filter to retrieve specific properties
         property_spec = cv.create_property_filter(["network"])
@@ -201,8 +210,13 @@ class ClusterFacts:
         # Create container view for ClusterComputeResource
         cv = ContainerViewManager(self.connection, [vim.ClusterComputeResource], True).create_container_view().view
 
-        # Find all the host clusters in vCenter, and creates a list of dictionaries.
+        # Destroy the container view
+        cv.destroy_container_view()
 
+        # Disonnect from vCenter
+        self.connection.disconnect()
+
+        # Find all the host clusters in vCenter, and creates a list of dictionaries.
         for cluster in cv:
             cluster_info = {
                 'name': cluster.name,
@@ -226,11 +240,16 @@ class DatastoreClusterFacts:
         datastore_cluster_facts = []
 
         # Create container view for Datacenter
-
         cv = ContainerViewManager(self.connection, [vim.Datacenter], True).create_container_view().view
 
+        # Destroy the container view
+        cv.destroy_container_view()
+
+        # Disonnect from vCenter
+        self.connection.disconnect()
+
+
         # Finds all datastore clusters in vCenter, and creates a list of dictionaries.
-    
         for dc in cv:
             for dc in dc.datastoreFolder.childEntity:
                 datastore_cluster_info = {
