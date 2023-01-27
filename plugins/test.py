@@ -1,8 +1,6 @@
 import argparse
 import paramiko
-import subprocess
 import re
-import os
 
 def is_valid_ip(ip):
     """
@@ -31,7 +29,7 @@ def create_playbook():
     playbook = """
     - hosts: all
       tasks:
-        - command: "curl 192.168.3.5"
+        - ping:
     """
     return playbook
 
@@ -63,14 +61,26 @@ def execute_playbook(client, playbook, host):
     Executes the playbook on the remote host and prints the output.
     """
 
-    # Execute the command and redirect stdout and stderr to a pipe
-    stdin, stdout, stderr = client.exec_command(playbook)
-    print("Please, wait until the playbook completes. The output will be shown at the end")
-
-    print(stdout.read().decode())
-    print(stderr.read().decode())
-    print("Ansible Playbook execution completed.")
     
+        # Execute the ansible playbook
+    channel = client.invoke_shell()
+    channel.send(playbook)
+    channel.send("\n")
+
+    # Capture the real-time output
+    while True:
+        if channel.recv_ready():
+            output = channel.recv(1024)
+            #print(output.decode("utf-8"), end="")
+            print(channel.exit_status_ready())
+        if channel.exit_status_ready():
+            break
+
+    client.close()
+    client.invoke_shell().send("exit\n")
+    client.transport.close()
+            
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Runs an Ansible playbook on a remote host.")
     parser.add_argument("--host", help="The host IP address.")
